@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -37,7 +38,14 @@ from .geo import area_km2, rings_from_geojson, validate_ring
 from .store import Store
 from .store.repo import StoreError
 
-DEFAULT_DB = "terrashield.db"
+DEFAULT_DB = os.environ.get("TERRASHIELD_DB", "terrashield.db")
+
+
+def _default_port() -> int:
+    try:
+        return int(os.environ.get("PORT", "8787"))
+    except ValueError:
+        return 8787
 
 
 def _store(args, role: Role = Role.ADMIN) -> Store:
@@ -427,7 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="terrashield", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--db", default=DEFAULT_DB)
-    p.add_argument("--org", default=sites.DEMO_ORG)
+    p.add_argument("--org", default=os.environ.get("TERRASHIELD_ORG", sites.DEMO_ORG))
     p.add_argument("--actor", default="", help="who is acting; audited")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -521,8 +529,11 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(fn=cmd_verify)
 
     q = sub.add_parser("serve", help="run the HTTP API")
-    q.add_argument("--host", default="127.0.0.1")
-    q.add_argument("--port", type=int, default=8787)
+    q.add_argument("--host",
+                   default=os.environ.get("HOST",
+                                          os.environ.get("TERRASHIELD_HOST",
+                                                         "127.0.0.1")))
+    q.add_argument("--port", type=int, default=_default_port())
     q.add_argument("--allow-signup", action="store_true",
                    help="enable self-service registration at "
                         "POST /api/auth/signup. Off by default: it is a way "

@@ -119,6 +119,16 @@ def _one(params: dict, key: str, default: str = "") -> str:
 def api_health(store: Store, **_) -> dict:
     return health(store)
 
+
+@public_route("GET", "/health")
+def public_health(**_) -> dict:
+    """Unauthenticated liveness probe for Railway / Docker healthchecks.
+
+    The detailed `/api/health` above stays behind auth; this one only
+    answers "is the process up" so the platform can gate traffic on it.
+    """
+    return {"ok": True, "service": "terrashield"}
+
 @route("GET", "/api/me")
 def api_me(store: Store, **_) -> dict:
     from .rbac import permissions_of
@@ -885,13 +895,30 @@ def serve(db_path: str, host: str = "127.0.0.1", port: int = 8787,
     changed is that with no way to authenticate at all -- no accounts, no map,
     no environment token -- the server refuses to start. A monitoring platform
     that defaults to open is a monitoring platform that ships open.
+
+    Railway: host/port/db resolve from the environment (`PORT`, `HOST` or
+    `TERRASHIELD_HOST`, `TERRASHIELD_DB`, `TERRASHIELD_ORG`,
+    `TERRASHIELD_ALLOW_SIGNUP`), so the same image runs locally and on
+    Railway with no code change -- mount a volume at `/data` and set
+    `TERRASHIELD_DB=/data/terrashield.db`.
     """
+    db_path = os.environ.get("TERRASHIELD_DB", db_path or "terrashield.db")
+    host = os.environ.get("HOST", os.environ.get("TERRASHIELD_HOST",
+                                                 host or "127.0.0.1"))
+    try:
+        port = int(os.environ.get("PORT", port))
+    except (TypeError, ValueError):
+        pass
+    org_id = os.environ.get("TERRASHIELD_ORG", org_id or "")
+    allow_signup = allow_signup or os.environ.get(
+        "TERRASHIELD_ALLOW_SIGNUP", "").lower() in ("1", "true", "yes")
     tokens = dict(token_map or {})
     env_token = os.environ.get("TERRASHIELD_TOKEN")
     if env_token and org_id:
         tokens.setdefault(env_token, (org_id, "api-token", Role.ANALYST))
 
     def _connect() -> sqlite3.Connection:
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)
         migrate(conn)
         return conn
